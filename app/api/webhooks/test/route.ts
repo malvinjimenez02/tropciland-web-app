@@ -8,8 +8,11 @@ function getServiceRoleClient() {
   )
 }
 
-export async function GET() {
-  if (process.env.NODE_ENV === 'production') {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const secret = searchParams.get('secret')
+
+  if (secret !== process.env.TEST_WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
