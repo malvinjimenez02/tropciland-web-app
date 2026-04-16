@@ -41,6 +41,12 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get('x-shopify-hmac-sha256') ?? ''
   const body = await req.text()
 
+  const secret = process.env.SHOPIFY_WEBHOOK_SECRET ?? ''
+  const computed = crypto.createHmac('sha256', secret).update(body, 'utf8').digest('base64')
+  console.log('[shopify-webhook] received signature:', signature)
+  console.log('[shopify-webhook] computed signature:', computed)
+  console.log('[shopify-webhook] secret length:', secret.length)
+
   let signatureValid: boolean
   try {
     signatureValid = verifyHmac(body, signature)
