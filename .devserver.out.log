@@ -1,0 +1,22 @@
+
+> tropciland-web-app@0.1.0 dev
+> next dev -H 127.0.0.1 -p 3000
+
+  ▲ Next.js 14.2.33
+  - Local:        http://127.0.0.1:3000
+  - Network:      http://127.0.0.1:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.9s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 1198ms (124 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 4s (640 modules)
+ GET /login 200 in 4283ms
+ GET /login 200 in 49ms
+ GET /login 200 in 36ms
+ ○ Compiling /favicon.ico ...
+ ✓ Compiled /favicon.ico in 1125ms (357 modules)
+ GET /favicon.ico 200 in 1239ms
+[?25h
