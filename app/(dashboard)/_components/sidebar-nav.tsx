@@ -52,7 +52,7 @@ const NAV_ITEMS = [
   },
 ]
 
-export default function SidebarNav() {
+export default function SidebarNav({ collapsed = false }: { collapsed?: boolean }) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -69,17 +69,21 @@ export default function SidebarNav() {
 
   return (
     <>
-      <nav className="flex-1 px-3 py-2 space-y-0.5">
+      <nav className="flex-1 px-2 py-2 space-y-0.5">
         {NAV_ITEMS.map((item) => {
           const active = isActive(item.href)
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              title={collapsed ? item.label : undefined}
+              className="flex items-center rounded-lg text-sm font-medium transition-colors"
               style={{
-                backgroundColor: active ? '#EEF2FF' : 'transparent',
-                color: active ? '#4F46E5' : '#6B7280',
+                gap: collapsed ? 0 : '12px',
+                padding: collapsed ? '8px' : '8px 12px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                backgroundColor: active ? '#E6F2EE' : 'transparent',
+                color: active ? '#1C5E4A' : '#6B7280',
               }}
               onMouseEnter={(e) => {
                 if (!active) {
@@ -94,17 +98,23 @@ export default function SidebarNav() {
                 }
               }}
             >
-              <span style={{ color: active ? '#4F46E5' : '#9CA3AF' }}>{item.icon}</span>
-              {item.label}
+              <span style={{ color: active ? '#1C5E4A' : '#9CA3AF', display: 'flex', flexShrink: 0 }}>{item.icon}</span>
+              {!collapsed && item.label}
             </Link>
           )
         })}
       </nav>
 
-      <div className="px-3 pb-5">
+      <div className="px-2 pb-5">
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-500 transition-colors"
+          title={collapsed ? 'Cerrar sesión' : undefined}
+          className="flex items-center w-full rounded-lg text-sm font-medium text-gray-500 transition-colors"
+          style={{
+            gap: collapsed ? 0 : '12px',
+            padding: collapsed ? '8px' : '8px 12px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+          }}
           onMouseEnter={(e) => {
             ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = '#FEF2F2'
             ;(e.currentTarget as HTMLButtonElement).style.color = '#DC2626'
@@ -114,12 +124,12 @@ export default function SidebarNav() {
             ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
             <polyline points="16 17 21 12 16 7" />
             <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
-          Cerrar sesión
+          {!collapsed && 'Cerrar sesión'}
         </button>
       </div>
     </>

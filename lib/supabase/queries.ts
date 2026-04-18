@@ -82,11 +82,13 @@ export async function saveOrderCosts(
   if (error) throw new Error(`saveOrderCosts: ${error.message}`)
 }
 
-// ─── Ads prorrateados ──────────────────────────────────────
+// ─── CPA por mes ───────────────────────────────────────────
 //
 // FUNCIÓN CENTRAL de cálculo de publicidad. Úsala en TODOS los lugares
 // donde necesites mostrar el costo de ads por pedido:
 // panel lateral, dashboard, cuadres. Nunca recalcules esta lógica inline.
+//
+// El CPA es configurado manualmente por el usuario desde Facebook/Meta Ads.
 
 export async function getAdsCostForMonth(month: string): Promise<{
   adsCostPerOrder: number
@@ -96,10 +98,9 @@ export async function getAdsCostForMonth(month: string): Promise<{
 }> {
   const supabase = createClient()
 
-  // 1. Obtener registro de monthly_ads (budget_dop es columna generada)
   const { data: ads, error: adsError } = await supabase
     .from('monthly_ads')
-    .select('budget_dop')
+    .select('budget_dop, cpa_dop')
     .eq('month', month)
     .single()
 
@@ -111,26 +112,28 @@ export async function getAdsCostForMonth(month: string): Promise<{
     return { adsCostPerOrder: 0, budgetDop: 0, orderCount: 0, isConfigured: false }
   }
 
-  const budgetDop: number = ads.budget_dop ?? 0
-
-  // 2. Contar pedidos válidos del mes (excluye cancelado y devuelto)
-  const { count, error: countError } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', `${month}-01`)
-    .lt('created_at', nextMonth(month))
-    .not('status', 'in', '("cancelado","devuelto")')
-
-  if (countError) throw new Error(`getAdsCostForMonth (count): ${countError.message}`)
-
-  const orderCount = count ?? 0
-
   return {
-    adsCostPerOrder: orderCount > 0 ? budgetDop / orderCount : 0,
-    budgetDop,
-    orderCount,
+    adsCostPerOrder: ads.cpa_dop ?? 0,
+    budgetDop: ads.budget_dop ?? 0,
+    orderCount: 0,
     isConfigured: true,
   }
+}
+
+export async function saveMonthlyAds(data: {
+  month: string
+  budget_usd: number
+  exchange_rate: number
+  cpa_dop: number
+  notes?: string
+}): Promise<void> {
+  const supabase = createClient()
+  // budget_dop es columna generada por PostgreSQL — no se incluye en el insert/update
+  const { error } = await supabase
+    .from('monthly_ads')
+    .upsert(data, { onConflict: 'month' })
+
+  if (error) throw new Error(`saveMonthlyAds: ${error.message}`)
 }
 
 /** Devuelve el primer día del mes siguiente en formato 'YYYY-MM-DD' */
@@ -203,17 +206,3 @@ export async function getAllMonthlyAds(): Promise<MonthlyAds[]> {
   return data as MonthlyAds[]
 }
 
-export async function saveMonthlyAds(data: {
-  month: string
-  budget_usd: number
-  exchange_rate: number
-  notes?: string
-}): Promise<void> {
-  const supabase = createClient()
-  // budget_dop es columna generada por PostgreSQL — no se incluye en el insert/update
-  const { error } = await supabase
-    .from('monthly_ads')
-    .upsert(data, { onConflict: 'month' })
-
-  if (error) throw new Error(`saveMonthlyAds: ${error.message}`)
-}

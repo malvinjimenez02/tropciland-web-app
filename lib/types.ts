@@ -51,5 +51,6 @@ export interface MonthlyAds {
   budget_usd: number
   exchange_rate: number
   budget_dop: number
+  cpa_dop: number
   notes: string | null
 }
