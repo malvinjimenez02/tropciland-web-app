@@ -48,7 +48,7 @@ function AdsForm({
     setSaving(true)
     setError(null)
     try {
-      await savePublicidadAction({ month: currentMonth, budget_usd: usd, exchange_rate: rate })
+      await savePublicidadAction({ month: currentMonth, budget_usd: usd, exchange_rate: rate, cpa_dop: 0 })
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 2000)
     } catch (e) {
