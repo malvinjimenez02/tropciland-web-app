@@ -7,7 +7,11 @@ import {
   getAdsCostForMonthAction,
   saveOrderDetailsAction,
   saveOrderCostsAction,
+  deleteOrderAction,
+  getOrderCostsExtraAction,
+  getProductsAction,
 } from './actions'
+import type { Product } from '@/lib/types'
 
 // ─── Constants ─────────────────────────────────────────────────
 
@@ -144,11 +148,12 @@ type Props = {
   order: OrderSummary | null
   onClose: () => void
   onStatusChange: (orderId: string, newStatus: OrderStatus) => void
+  onDelete: (orderId: string) => void
 }
 
 // ─── Main component ────────────────────────────────────────────
 
-export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
+export default function OrderPanel({ order, onClose, onStatusChange, onDelete }: Props) {
   const isOpen = order !== null
 
   // Form state
@@ -159,15 +164,20 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
   const [productCost, setProductCost] = useState(0)
   const [packagingCost, setPackagingCost] = useState(0)
   const [deliveryCost, setDeliveryCost] = useState(0)
+  const [quantity, setQuantity] = useState(1)
+  const [discount, setDiscount] = useState(0)
 
   // Loaded async data
   const [couriers, setCouriers] = useState<Courier[]>([])
   const [adsData, setAdsData] = useState<AdsData | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
 
   // UI state
   const [saving, setSaving] = useState(false)
   const [savedOk, setSavedOk] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [isDirty, setIsDirty] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Initialize form when selected order changes
   useEffect(() => {
@@ -177,9 +187,11 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
     setTracking(order.tracking_number ?? '')
     setCourierName(order.courier_name ?? '')
     setNotes(order.notes ?? '')
-    setProductCost(order.product_cost ?? 0)
-    setPackagingCost(order.packaging_cost ?? 0)
-    setDeliveryCost(order.delivery_cost ?? 0)
+    setProductCost(0)
+    setPackagingCost(0)
+    setDeliveryCost(0)
+    setQuantity(1)
+    setDiscount(0)
     setIsDirty(false)
     setSavedOk(false)
     setAdsData(null)
@@ -188,6 +200,25 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
 
     const month = order.created_at.slice(0, 7)
     getAdsCostForMonthAction(month).then(setAdsData).catch(() => {})
+
+    // Load all costs fresh from DB (not from stale in-memory order prop)
+    Promise.all([
+      getOrderCostsExtraAction(order.id),
+      getProductsAction(),
+    ]).then(([costs, prods]) => {
+      setProducts(prods)
+      setQuantity(costs.quantity)
+      setDiscount(costs.discount)
+      setPackagingCost(costs.packaging_cost)
+      setDeliveryCost(costs.delivery_cost)
+
+      if (costs.product_cost > 0) {
+        setProductCost(costs.product_cost)
+      } else if (prods.length > 0) {
+        // Auto-fill with unit price × saved quantity
+        setProductCost(prods[0].unit_price * costs.quantity)
+      }
+    }).catch(() => {})
   }, [order?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredCouriers = couriers.filter((c) =>
@@ -205,9 +236,25 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
     if (order) onStatusChange(order.id, newStatus)
   }
 
+  async function handleDelete() {
+    if (!order) return
+    if (!confirm(`¿Eliminar el pedido ${order.order_number}? Esta acción no se puede deshacer.`)) return
+    setDeleting(true)
+    try {
+      const result = await deleteOrderAction(order.id)
+      if (!result.error) {
+        onDelete(order.id)
+        onClose()
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   async function handleSave() {
     if (!order) return
     setSaving(true)
+    setSaveError(null)
     try {
       await Promise.all([
         saveOrderDetailsAction(order.id, {
@@ -220,13 +267,15 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
           product_cost: productCost,
           packaging_cost: packagingCost,
           delivery_cost: deliveryCost,
+          quantity,
+          discount,
         }),
       ])
       setIsDirty(false)
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 1500)
-    } catch {
-      // TODO: show error toast
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Error al guardar')
     } finally {
       setSaving(false)
     }
@@ -236,10 +285,21 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
   const adsCost = adsData?.adsCostPerOrder ?? 0
   const totalCosts = productCost + packagingCost + deliveryCost + adsCost
   const shopifyTotal = order?.shopify_total ?? 0
-  const netProfit = shopifyTotal - totalCosts
+  const netProfit = shopifyTotal - totalCosts - discount
   const margin = shopifyTotal > 0
     ? ((netProfit / shopifyTotal) * 100).toFixed(1)
     : '0.0'
+
+  const unitPrice = products.length > 0 ? products[0].unit_price : null
+
+  function handleQuantityChange(newQty: number) {
+    const q = Math.max(1, newQty)
+    setQuantity(q)
+    if (unitPrice !== null) {
+      setProductCost(unitPrice * q)
+    }
+    markDirty()
+  }
 
   const isSD = order?.zone === 'santo_domingo'
   const dotColor = STATUS_COLOR[status] ?? '#6B7280'
@@ -276,14 +336,7 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
                 className="ml-3 mt-0.5 flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
                 aria-label="Cerrar panel"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -294,10 +347,25 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
 
               {/* Section 1: Información del pedido */}
               <div className="bg-gray-50 px-5 py-4 space-y-3 border-b border-gray-100">
-                <InfoRow label="Cliente">{order.customer_name ?? '—'}</InfoRow>
+                <div className="flex items-center justify-between">
+                  <InfoRow label="Cliente">{order.customer_name ?? '—'}</InfoRow>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex items-center justify-center w-7 h-7 rounded-md bg-red-50 hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                    aria-label="Eliminar pedido"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
                 <InfoRow label="Teléfono">{order.customer_phone ?? '—'}</InfoRow>
                 <InfoRow label="Dirección">
                   <span className="leading-snug">{order.customer_address ?? '—'}</span>
+                </InfoRow>
+                <InfoRow label="Provincia">
+                  {order.customer_province ?? '—'}
                 </InfoRow>
                 <div className="flex items-start justify-between gap-4">
                   <InfoRow label="Zona">
@@ -391,11 +459,41 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
                 <SectionTitle>Costos (RD$)</SectionTitle>
 
                 <div className="space-y-3">
-                  <CostInput
-                    label="Costo del producto"
-                    value={productCost}
-                    onChange={(v) => { setProductCost(v); markDirty() }}
-                  />
+                  {/* Producto — con selector de unidades */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <span className="text-xs text-gray-600">Costo del producto</span>
+                      {unitPrice !== null && (
+                        <span className="text-sm font-medium text-gray-900">{fmtRD(productCost)}</span>
+                      )}
+                    </div>
+                    {unitPrice !== null ? (
+                      /* Quantity stepper */
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleQuantityChange(quantity - 1)}
+                          className="w-7 h-7 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-sm font-medium transition-colors"
+                        >−</button>
+                        <span className="text-sm font-semibold text-gray-700 w-5 text-center">{quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleQuantityChange(quantity + 1)}
+                          className="w-7 h-7 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-sm font-medium transition-colors"
+                        >+</button>
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        value={productCost === 0 ? '' : productCost}
+                        onChange={(e) => { setProductCost(parseFloat(e.target.value) || 0); markDirty() }}
+                        placeholder="0"
+                        className="w-28 text-sm text-right border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+                      />
+                    )}
+                  </div>
+
                   <CostInput
                     label="Logística / empaque"
                     value={packagingCost}
@@ -405,6 +503,11 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
                     label="Delivery o transportadora"
                     value={deliveryCost}
                     onChange={(v) => { setDeliveryCost(v); markDirty() }}
+                  />
+                  <CostInput
+                    label="Descuento al cliente"
+                    value={discount}
+                    onChange={(v) => { setDiscount(v); markDirty() }}
                   />
 
                   {/* Publicidad del mes — read-only */}
@@ -429,10 +532,7 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
                       ) : (
                         <span className="text-gray-400">
                           RD$0 —{' '}
-                          <a
-                            href="/configuracion"
-                            className="underline" style={{ color: '#1C5E4A' }}
-                          >
+                          <a href="/configuracion" className="underline" style={{ color: '#1C5E4A' }}>
                             Sin configurar
                           </a>
                         </span>
@@ -446,6 +546,9 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
                 {/* Resumen calculado */}
                 <div className="space-y-2">
                   <SummaryRow label="Total costos" value={fmtRD(totalCosts)} />
+                  {discount > 0 && (
+                    <SummaryRow label="Descuento" value={`− ${fmtRD(discount)}`} className="text-amber-600 font-medium" />
+                  )}
                   <SummaryRow
                     label="Ganancia neta"
                     value={fmtRD(netProfit)}
@@ -462,6 +565,9 @@ export default function OrderPanel({ order, onClose, onStatusChange }: Props) {
 
             {/* ── Footer: save button ── */}
             <div className="px-5 py-4 border-t border-gray-200 flex-shrink-0">
+              {saveError && (
+                <p className="text-xs text-red-600 mb-2 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+              )}
               <div className="relative">
                 {isDirty && !saving && (
                   <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-400 rounded-full z-10" />

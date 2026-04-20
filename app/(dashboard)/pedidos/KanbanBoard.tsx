@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   DndContext,
   DragOverlay,
@@ -15,7 +16,8 @@ import {
 } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { OrderSummary, OrderStatus } from '@/lib/types'
-import { updateOrderStatusAction } from './actions'
+import { updateOrderStatusAction, importOrdersFromCsvAction } from './actions'
+import type { CsvOrderRow } from './actions'
 import OrderPanel from './OrderPanel'
 
 // ─── Column config ─────────────────────────────────────────────
@@ -277,6 +279,7 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
 type ZoneFilter = 'all' | 'santo_domingo' | 'interior'
 
 export default function KanbanBoard({ initialOrders }: { initialOrders: OrderSummary[] }) {
+  const router = useRouter()
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
@@ -286,11 +289,112 @@ export default function KanbanBoard({ initialOrders }: { initialOrders: OrderSum
   const [activeId, setActiveId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 4000)
   }, [])
+
+  function parseCsv(text: string): CsvOrderRow[] {
+    // Full CSV parser that handles multi-line quoted fields
+    const allRows: string[][] = []
+    let cells: string[] = []
+    let cur = ''
+    let inQuote = false
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]
+      const next = text[i + 1]
+      if (ch === '"') {
+        if (inQuote && next === '"') { cur += '"'; i++ }
+        else { inQuote = !inQuote }
+      } else if (ch === ',' && !inQuote) {
+        cells.push(cur); cur = ''
+      } else if ((ch === '\n' || ch === '\r') && !inQuote) {
+        if (ch === '\r' && next === '\n') i++
+        cells.push(cur); cur = ''
+        if (cells.some(c => c.trim())) allRows.push(cells)
+        cells = []
+      } else {
+        cur += ch
+      }
+    }
+    if (cur || cells.length) { cells.push(cur); if (cells.some(c => c.trim())) allRows.push(cells) }
+
+    if (allRows.length < 2) return []
+
+    const headers = allRows[0].map(h => h.trim())
+    const col = (name: string) => headers.indexOf(name)
+    const getCell = (row: string[], name: string) => {
+      const i = col(name)
+      return i >= 0 ? (row[i] ?? '').trim() : ''
+    }
+
+    const seen = new Set<string>()
+    const rows: CsvOrderRow[] = []
+
+    for (let i = 1; i < allRows.length; i++) {
+      const r = allRows[i]
+      const id = getCell(r, 'Id')
+      const name = getCell(r, 'Name')
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+
+      const total = parseFloat(getCell(r, 'Total') || '0') || 0
+      const customerName = getCell(r, 'Shipping Name') || getCell(r, 'Billing Name') || null
+      const phone = getCell(r, 'Shipping Phone') || getCell(r, 'Billing Phone') || null
+      const addr1 = getCell(r, 'Shipping Address1')
+      const city  = getCell(r, 'Shipping City')
+      const prov  = getCell(r, 'Shipping Province')
+      const address = [addr1, city].filter(Boolean).join(', ') || null
+
+      const combined = `${city} ${prov}`.toLowerCase()
+      const sdKw = ['santo domingo', 'distrito nacional', 'd.n.', 'sto. dgo', 'sto dgo']
+      const zone = sdKw.some(k => combined.includes(k)) ? 'santo_domingo' : 'interior'
+
+      rows.push({
+        shopify_id: id,
+        order_number: name,
+        customer_name: customerName,
+        customer_phone: phone,
+        customer_address: address,
+        customer_province: prov || null,
+        shopify_total: total,
+        zone,
+      })
+    }
+
+    return rows
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+
+    setIsImporting(true)
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+      if (!rows.length) {
+        showToast('No se encontraron pedidos en el archivo.')
+        return
+      }
+      const result = await importOrdersFromCsvAction(rows)
+      if (result.error) {
+        showToast(result.error)
+      } else if (result.imported === 0) {
+        showToast('No hay pedidos nuevos para importar.')
+      } else {
+        showToast(`${result.imported} pedido${result.imported === 1 ? '' : 's'} importado${result.imported === 1 ? '' : 's'} correctamente.`)
+        router.refresh()
+      }
+    } finally {
+      setIsImporting(false)
+    }
+  }
 
   const visibleOrders =
     filter === 'all' ? orders : orders.filter((o) => o.zone === filter)
@@ -348,21 +452,10 @@ export default function KanbanBoard({ initialOrders }: { initialOrders: OrderSum
     setActiveId(null)
   }
 
-  // Global empty state
-  if (orders.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 pb-6">
-        <p className="text-sm text-gray-400 text-center max-w-xs">
-          No hay pedidos aún. Los nuevos pedidos de Shopify aparecerán aquí automáticamente.
-        </p>
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col flex-1 overflow-hidden px-6 pb-6">
-      {/* Filter pills */}
-      <div className="flex gap-2 mb-4">
+      {/* Filter pills + import button */}
+      <div className="flex gap-2 mb-4 items-center">
         {(
           [
             ['all', 'Todos'],
@@ -382,9 +475,32 @@ export default function KanbanBoard({ initialOrders }: { initialOrders: OrderSum
             {label}
           </button>
         ))}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+          className="ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {isImporting ? 'Importando…' : 'Importar CSV'}
+        </button>
       </div>
 
-      {/* Board */}
+      {orders.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-sm text-gray-400 text-center max-w-xs">
+            No hay pedidos aún. Los nuevos pedidos de Shopify aparecerán aquí automáticamente.
+          </p>
+        </div>
+      ) : (
       <DndContext
         sensors={sensors}
         collisionDetection={pointerWithin}
@@ -437,11 +553,16 @@ export default function KanbanBoard({ initialOrders }: { initialOrders: OrderSum
           ) : null}
         </DragOverlay>
       </DndContext>
+      )}
 
       <OrderPanel
         order={selectedOrder}
         onClose={() => setSelectedId(null)}
         onStatusChange={handleStatusChangeFromPanel}
+        onDelete={(id) => {
+          setOrders((prev) => prev.filter((o) => o.id !== id))
+          setSelectedId(null)
+        }}
       />
 
       {toastMsg && (

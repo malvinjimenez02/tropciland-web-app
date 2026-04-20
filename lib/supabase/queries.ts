@@ -4,7 +4,7 @@
  * Nunca hacer queries directas fuera de este archivo.
  */
 import { createClient } from '@/lib/supabase/server'
-import type { Courier, MonthlyAds, OrderStatus, OrderSummary } from '@/lib/types'
+import type { Courier, MonthlyAds, OrderStatus, OrderSummary, Product } from '@/lib/types'
 
 // ─── Pedidos ───────────────────────────────────────────────
 
@@ -68,6 +68,8 @@ export async function saveOrderCosts(
     product_cost: number
     packaging_cost: number
     delivery_cost: number
+    quantity: number
+    discount: number
     notes?: string
   }
 ): Promise<void> {
@@ -80,6 +82,30 @@ export async function saveOrderCosts(
     )
 
   if (error) throw new Error(`saveOrderCosts: ${error.message}`)
+}
+
+export async function getOrderCostsExtra(orderId: string): Promise<{
+  quantity: number
+  discount: number
+  product_cost: number
+  packaging_cost: number
+  delivery_cost: number
+}> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('order_costs')
+    .select('quantity, discount, product_cost, packaging_cost, delivery_cost')
+    .eq('order_id', orderId)
+    .single()
+
+  if (error || !data) return { quantity: 1, discount: 0, product_cost: 0, packaging_cost: 0, delivery_cost: 0 }
+  return {
+    quantity: data.quantity ?? 1,
+    discount: data.discount ?? 0,
+    product_cost: data.product_cost ?? 0,
+    packaging_cost: data.packaging_cost ?? 0,
+    delivery_cost: data.delivery_cost ?? 0,
+  }
 }
 
 // ─── CPA por mes ───────────────────────────────────────────
@@ -178,6 +204,26 @@ export async function toggleCourierActive(id: string, active: boolean): Promise<
   if (error) throw new Error(`toggleCourierActive: ${error.message}`)
 }
 
+export async function updateCourier(id: string, data: { name: string; type: 'mensajero_sd' | 'transportadora' }): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('couriers')
+    .update(data)
+    .eq('id', id)
+
+  if (error) throw new Error(`updateCourier: ${error.message}`)
+}
+
+export async function deleteCourier(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('couriers')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw new Error(`deleteCourier: ${error.message}`)
+}
+
 // ─── Publicidad mensual ───────────────────────────────────
 
 export async function getMonthlyAds(month: string): Promise<MonthlyAds | null> {
@@ -204,5 +250,36 @@ export async function getAllMonthlyAds(): Promise<MonthlyAds[]> {
 
   if (error) throw new Error(`getAllMonthlyAds: ${error.message}`)
   return data as MonthlyAds[]
+}
+
+// ─── Productos ────────────────────────────────────────────
+
+export async function getProducts(): Promise<Product[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .order('created_at')
+
+  if (error) throw new Error(`getProducts: ${error.message}`)
+  return data as Product[]
+}
+
+export async function createProduct(data: { name: string; unit_price: number; initial_stock: number }): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('products').insert(data)
+  if (error) throw new Error(`createProduct: ${error.message}`)
+}
+
+export async function updateProduct(id: string, data: { name: string; unit_price: number; initial_stock: number }): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('products').update(data).eq('id', id)
+  if (error) throw new Error(`updateProduct: ${error.message}`)
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('products').delete().eq('id', id)
+  if (error) throw new Error(`deleteProduct: ${error.message}`)
 }
 

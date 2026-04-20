@@ -2,43 +2,46 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Courier } from '@/lib/types'
-import { createCourierAction, updateCourierAction, deleteCourierAction } from './actions'
+import type { Product } from '@/lib/types'
+import { createProductAction, updateProductAction, deleteProductAction } from './actions'
 
-type Props = { initialCouriers: Courier[] }
+type Props = { initialProducts: Product[] }
 
-export default function CouriersSection({ initialCouriers }: Props) {
+const fmt = (n: number) =>
+  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP', maximumFractionDigits: 2 }).format(n)
+
+export default function ProductsSection({ initialProducts }: Props) {
   const router = useRouter()
-  const [couriers, setCouriers] = useState(initialCouriers)
+  const [products, setProducts] = useState(initialProducts)
   const [newName, setNewName] = useState('')
-  const [newType, setNewType] = useState<'mensajero_sd' | 'transportadora'>('mensajero_sd')
+  const [newPrice, setNewPrice] = useState('')
+  const [newStock, setNewStock] = useState('')
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [editType, setEditType] = useState<'mensajero_sd' | 'transportadora'>('mensajero_sd')
+  const [editPrice, setEditPrice] = useState('')
+  const [editStock, setEditStock] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  useEffect(() => { setCouriers(initialCouriers) }, [initialCouriers])
+  useEffect(() => { setProducts(initialProducts) }, [initialProducts])
 
-  function startEdit(courier: Courier) {
-    setEditingId(courier.id)
-    setEditName(courier.name)
-    setEditType(courier.type)
+  function startEdit(p: Product) {
+    setEditingId(p.id)
+    setEditName(p.name)
+    setEditPrice(String(p.unit_price))
+    setEditStock(String(p.initial_stock))
   }
 
-  function cancelEdit() {
-    setEditingId(null)
-  }
+  function cancelEdit() { setEditingId(null) }
 
-  async function handleSaveEdit(id: string) {
+  async function handleSave(id: string) {
     if (!editName.trim()) return
     setSavingId(id)
+    const data = { name: editName.trim(), unit_price: parseFloat(editPrice) || 0, initial_stock: parseInt(editStock) || 0 }
     try {
-      await updateCourierAction(id, { name: editName.trim(), type: editType })
-      setCouriers((prev) =>
-        prev.map((c) => c.id === id ? { ...c, name: editName.trim(), type: editType } : c)
-      )
+      await updateProductAction(id, data)
+      setProducts((prev) => prev.map((p) => p.id === id ? { ...p, ...data } : p))
       setEditingId(null)
     } finally {
       setSavingId(null)
@@ -46,11 +49,11 @@ export default function CouriersSection({ initialCouriers }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('¿Eliminar este mensajero/transportadora?')) return
+    if (!confirm('¿Eliminar este producto?')) return
     setDeletingId(id)
     try {
-      await deleteCourierAction(id)
-      setCouriers((prev) => prev.filter((c) => c.id !== id))
+      await deleteProductAction(id)
+      setProducts((prev) => prev.filter((p) => p.id !== id))
     } finally {
       setDeletingId(null)
     }
@@ -61,8 +64,12 @@ export default function CouriersSection({ initialCouriers }: Props) {
     if (!newName.trim()) return
     setAdding(true)
     try {
-      await createCourierAction({ name: newName.trim(), type: newType })
-      setNewName('')
+      await createProductAction({
+        name: newName.trim(),
+        unit_price: parseFloat(newPrice) || 0,
+        initial_stock: parseInt(newStock) || 0,
+      })
+      setNewName(''); setNewPrice(''); setNewStock('')
       router.refresh()
     } finally {
       setAdding(false)
@@ -72,9 +79,9 @@ export default function CouriersSection({ initialCouriers }: Props) {
   return (
     <section className="bg-white rounded-xl border border-gray-200 flex flex-col">
       <div className="px-5 py-4 border-b border-gray-100">
-        <h2 className="text-base font-semibold text-gray-900">Mensajeros y transportadoras</h2>
+        <h2 className="text-base font-semibold text-gray-900">Productos e inventario</h2>
         <p className="text-xs text-gray-400 mt-0.5">
-          {couriers.length} registrado{couriers.length !== 1 ? 's' : ''}
+          {products.length} producto{products.length !== 1 ? 's' : ''} registrado{products.length !== 1 ? 's' : ''}
         </p>
       </div>
 
@@ -83,49 +90,62 @@ export default function CouriersSection({ initialCouriers }: Props) {
           <thead>
             <tr className="border-b border-gray-100 text-left">
               <th className="px-5 py-2.5 text-xs font-medium text-gray-500">Nombre</th>
-              <th className="px-4 py-2.5 text-xs font-medium text-gray-500">Tipo</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-gray-500">Precio unit.</th>
+              <th className="px-4 py-2.5 text-xs font-medium text-gray-500">Stock inicial</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {couriers.length === 0 ? (
+            {products.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-5 py-8 text-center text-xs text-gray-400">
-                  Sin couriers registrados. Agrega uno abajo.
+                <td colSpan={4} className="px-5 py-8 text-center text-xs text-gray-400">
+                  Sin productos registrados. Agrega uno abajo.
                 </td>
               </tr>
             ) : (
-              couriers.map((courier) =>
-                editingId === courier.id ? (
-                  <tr key={courier.id} className="bg-gray-50">
+              products.map((p) =>
+                editingId === p.id ? (
+                  <tr key={p.id} className="bg-gray-50">
                     <td className="px-5 py-2">
                       <input
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                         className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+                        placeholder="Nombre"
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <select
-                        value={editType}
-                        onChange={(e) => setEditType(e.target.value as 'mensajero_sd' | 'transportadora')}
-                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
-                      >
-                        <option value="mensajero_sd">Mensajero SD</option>
-                        <option value="transportadora">Transportadora</option>
-                      </select>
+                      <input
+                        type="number"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                        min="0"
+                        step="0.01"
+                        className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-28 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+                        placeholder="0.00"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        value={editStock}
+                        onChange={(e) => setEditStock(e.target.value)}
+                        min="0"
+                        className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-24 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+                        placeholder="0"
+                      />
                     </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => handleSaveEdit(courier.id)}
-                          disabled={savingId === courier.id || !editName.trim()}
+                          onClick={() => handleSave(p.id)}
+                          disabled={savingId === p.id || !editName.trim()}
                           className="px-3 py-1.5 text-xs font-semibold text-white rounded-lg disabled:opacity-50 transition-colors"
                           style={{ backgroundColor: '#1C5E4A' }}
                         >
-                          {savingId === courier.id ? 'Guardando…' : 'Guardar'}
+                          {savingId === p.id ? 'Guardando…' : 'Guardar'}
                         </button>
                         <button
                           type="button"
@@ -138,16 +158,15 @@ export default function CouriersSection({ initialCouriers }: Props) {
                     </td>
                   </tr>
                 ) : (
-                  <tr key={courier.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3 font-medium text-gray-900">{courier.name}</td>
-                    <td className="px-4 py-3">
-                      <TypeBadge type={courier.type} />
-                    </td>
+                  <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-5 py-3 font-medium text-gray-900">{p.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{fmt(p.unit_price)}</td>
+                    <td className="px-4 py-3 text-gray-600">{p.initial_stock.toLocaleString('es-DO')}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => startEdit(courier)}
+                          onClick={() => startEdit(p)}
                           title="Editar"
                           className="p-1.5 text-gray-400 hover:text-[#1C5E4A] hover:bg-[#E6F2EE] rounded-lg transition-colors"
                         >
@@ -155,8 +174,8 @@ export default function CouriersSection({ initialCouriers }: Props) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(courier.id)}
-                          disabled={deletingId === courier.id}
+                          onClick={() => handleDelete(p.id)}
+                          disabled={deletingId === p.id}
                           title="Eliminar"
                           className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                         >
@@ -174,23 +193,32 @@ export default function CouriersSection({ initialCouriers }: Props) {
 
       <form onSubmit={handleAdd} className="px-5 py-4 border-t border-gray-100 flex flex-col gap-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Agregar nuevo</p>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Nombre"
+            placeholder="Nombre del producto"
             required
-            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+            className="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
           />
-          <select
-            value={newType}
-            onChange={(e) => setNewType(e.target.value as 'mensajero_sd' | 'transportadora')}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
-          >
-            <option value="mensajero_sd">Mensajero SD</option>
-            <option value="transportadora">Transportadora</option>
-          </select>
+          <input
+            type="number"
+            value={newPrice}
+            onChange={(e) => setNewPrice(e.target.value)}
+            placeholder="Precio unit. (RD$)"
+            min="0"
+            step="0.01"
+            className="w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+          />
+          <input
+            type="number"
+            value={newStock}
+            onChange={(e) => setNewStock(e.target.value)}
+            placeholder="Stock inicial"
+            min="0"
+            className="w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1C5E4A]"
+          />
         </div>
         <button
           type="submit"
@@ -204,18 +232,6 @@ export default function CouriersSection({ initialCouriers }: Props) {
         </button>
       </form>
     </section>
-  )
-}
-
-function TypeBadge({ type }: { type: Courier['type'] }) {
-  return type === 'mensajero_sd' ? (
-    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-      Mensajero SD
-    </span>
-  ) : (
-    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#E6F2EE] text-[#1C5E4A]">
-      Transportadora
-    </span>
   )
 }
 

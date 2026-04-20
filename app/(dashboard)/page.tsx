@@ -1,4 +1,4 @@
-import { getOrders, getAdsCostForMonth } from '@/lib/supabase/queries'
+import { getOrders, getAdsCostForMonth, getProducts } from '@/lib/supabase/queries'
 import type { OrderSummary } from '@/lib/types'
 import DashboardPeriodSelector from './_components/DashboardPeriodSelector'
 import MetricsRow from './_components/MetricsRow'
@@ -8,6 +8,7 @@ import ZoneRow from './_components/ZoneRow'
 import StatusRow from './_components/StatusRow'
 import OrdersTableClient from './_components/OrdersTableClient'
 import AdsAlertRow from './_components/AdsAlertRow'
+import InventoryRow from './_components/InventoryRow'
 
 // ─── Period helpers ─────────────────────────────────────────
 
@@ -107,17 +108,18 @@ export default async function DashboardPage({
   const currentMonth           = new Date().toISOString().slice(0, 7)
   const subtitle               = periodSubtitle(period, from, to)
 
-  const [allOrders, adsData] = await Promise.all([
+  const [allOrders, adsData, products] = await Promise.all([
     getOrders(),
     getAdsCostForMonth(currentMonth),
+    getProducts(),
   ])
 
   const { adsCostPerOrder } = adsData
 
   // ── Period slices ──────────────────────────────────────────
   const inPeriod   = allOrders.filter(o => { const d = o.created_at.slice(0, 10); return d >= from && d <= to })
-  const delivered  = inPeriod.filter(o => o.status === 'entregado')
-  const prevDel    = allOrders.filter(o => { const d = o.created_at.slice(0, 10); return d >= pf && d <= pt && o.status === 'entregado' })
+  const delivered  = inPeriod.filter(o => !['cancelado', 'devuelto'].includes(o.status))
+  const prevDel    = allOrders.filter(o => { const d = o.created_at.slice(0, 10); return d >= pf && d <= pt && !['cancelado', 'devuelto'].includes(o.status) })
 
   const curr = metrics(delivered, adsCostPerOrder)
   const prev = metrics(prevDel, adsCostPerOrder)
@@ -131,7 +133,7 @@ export default async function DashboardPage({
   const dailyMap: Record<string, { vendido: number; ganancia: number }> = {}
   for (const o of allOrders.filter(o => {
     const d = o.created_at.slice(0, 10)
-    return d >= d30Str && d <= todayStr && o.status === 'entregado'
+    return d >= d30Str && d <= todayStr && !['cancelado', 'devuelto'].includes(o.status)
   })) {
     const day = o.created_at.slice(0, 10)
     if (!dailyMap[day]) dailyMap[day] = { vendido: 0, ganancia: 0 }
@@ -203,8 +205,12 @@ export default async function DashboardPage({
     o => !['cancelado', 'devuelto'].includes(o.status) && o.total_cost_base === 0
   ).length
 
+  const totalDeliveredAllTime = allOrders.filter(
+    o => !['cancelado', 'devuelto'].includes(o.status)
+  ).length
+
   return (
-    <div className="px-8 py-7 space-y-5 max-w-screen-xl">
+    <div className="px-8 py-7 space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -227,6 +233,9 @@ export default async function DashboardPage({
 
       {/* Trend */}
       <TrendChart points={trendPoints} />
+
+      {/* Inventory */}
+      <InventoryRow products={products} totalDelivered={totalDeliveredAllTime} />
 
       {/* Cost breakdown */}
       <CostBreakdownRow breakdown={breakdown} />

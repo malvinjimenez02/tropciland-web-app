@@ -11,6 +11,7 @@ export interface Order {
   customer_name: string | null
   customer_phone: string | null
   customer_address: string | null
+  customer_province: string | null
   zone: Zone | null
   status: OrderStatus
   shopify_total: number
@@ -27,6 +28,8 @@ export interface OrderCosts {
   product_cost: number
   packaging_cost: number
   delivery_cost: number
+  quantity: number
+  discount: number
   notes: string | null
 }
 
@@ -43,6 +46,14 @@ export interface Courier {
   name: string
   type: 'mensajero_sd' | 'transportadora'
   active: boolean
+}
+
+export interface Product {
+  id: string
+  name: string
+  unit_price: number
+  initial_stock: number
+  created_at: string
 }
 
 export interface MonthlyAds {
