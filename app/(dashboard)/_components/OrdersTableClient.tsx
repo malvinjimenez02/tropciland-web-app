@@ -41,6 +41,11 @@ export default function OrdersTableClient({ orders, adsCostPerOrder = 0, compact
     setSelected(prev => (prev?.id === orderId ? { ...prev, status: newStatus } : prev))
   }
 
+  function handleDelete(orderId: string) {
+    setLocalOrders(prev => prev.filter(o => o.id !== orderId))
+    setSelected(prev => (prev?.id === orderId ? null : prev))
+  }
+
   const headers = compact
     ? ['#', 'Cliente', 'Zona', 'Estado', 'Total', 'Ganancia']
     : ['# Pedido', 'Cliente', 'Zona', 'Estado', 'Total', 'Ganancia*', 'Fecha']
@@ -148,6 +153,7 @@ export default function OrdersTableClient({ orders, adsCostPerOrder = 0, compact
         order={selected}
         onClose={() => setSelected(null)}
         onStatusChange={handleStatusChange}
+        onDelete={handleDelete}
       />
     </>
   )
